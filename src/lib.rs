@@ -5,7 +5,13 @@
 /// https://substrate.dev/docs/en/knowledgebase/runtime/frame
 
 use frame_support::{decl_module, decl_storage, decl_event, decl_error, dispatch, traits::Get};
-use frame_system::ensure_signed;
+use frame_system::ensure_none;
+use frame_support::inherent::{ProvideInherent, InherentData, IsFatalError};
+use frame_support::pallet_prelude::InherentIdentifier;
+use codec::WrapperTypeEncode;
+use std::ops::Deref;
+
+type InherentType = u8;
 
 #[cfg(test)]
 mod mock;
@@ -19,42 +25,43 @@ pub trait Config: frame_system::Config {
 	type Event: From<Event<Self>> + Into<<Self as frame_system::Config>::Event>;
 }
 
-// The pallet's runtime storage items.
-// https://substrate.dev/docs/en/knowledgebase/runtime/storage
 decl_storage! {
-	// A unique name is used to ensure that the pallet's storage items are isolated.
-	// This name may be updated, but each pallet in the runtime must use a unique name.
-	// ---------------------------------vvvvvvvvvvvvvv
-	trait Store for Module<T: Config> as TemplateModule {
-		// Learn more about declaring storage items:
-		// https://substrate.dev/docs/en/knowledgebase/runtime/storage#declaring-storage-items
-		Something get(fn something): Option<u32>;
+	trait Store for Module<T: Config> as KaraokeModule {
+		LineIndex get(fn line_index): Option<u8>;
 	}
 }
 
 // Pallets use events to inform users when important changes are made.
-// https://substrate.dev/docs/en/knowledgebase/runtime/events
 decl_event!(
-	pub enum Event<T> where AccountId = <T as frame_system::Config>::AccountId {
-		/// Event documentation should end with an array that provides descriptive names for event
-		/// parameters. [something, who]
-		SomethingStored(u32, AccountId),
+	pub enum Event<T> where <T as frame_system::Config>::AccountId {
+		/// Line index was set. [index]
+		LineIndexSet(u8, Option<AccountId>),
 	}
 );
 
 // Errors inform users that something went wrong.
 decl_error! {
-	pub enum Error for Module<T: Config> {
-		/// Error names should be descriptive.
-		NoneValue,
-		/// Errors should have helpful documentation associated with them.
-		StorageOverflow,
+	pub enum Error for Module<T: Config> { }
+}
+
+impl<T: Config> IsFatalError for Error<T> {
+	fn is_fatal_error(&self) -> bool {
+		true
 	}
 }
 
-// Dispatchable functions allows users to interact with the pallet and invoke state changes.
-// These functions materialize as "extrinsics", which are often compared to transactions.
-// Dispatchable functions must be annotated with a weight and must return a DispatchResult.
+impl<T: Config> Deref for Error<T> {
+	type Target = ();
+
+	fn deref(&self) -> &Self::Target {
+		&()
+	}
+}
+
+impl<T: Config> WrapperTypeEncode for Error<T> {
+
+}
+
 decl_module! {
 	pub struct Module<T: Config> for enum Call where origin: T::Origin {
 		// Errors must be initialized if they are used by the pallet.
@@ -66,38 +73,25 @@ decl_module! {
 		/// An example dispatchable that takes a singles value as a parameter, writes the value to
 		/// storage and emits an event. This function must be dispatched by a signed extrinsic.
 		#[weight = 10_000 + T::DbWeight::get().writes(1)]
-		pub fn do_something(origin, something: u32) -> dispatch::DispatchResult {
-			// Check that the extrinsic was signed and get the signer.
-			// This function will return an error if the extrinsic is not signed.
-			// https://substrate.dev/docs/en/knowledgebase/runtime/origin
-			let who = ensure_signed(origin)?;
+		pub fn set_line_index(origin, line_index: u8) -> dispatch::DispatchResult {
+			ensure_none(origin)?;
 
-			// Update storage.
-			Something::put(something);
+			LineIndex::put(line_index);
 
-			// Emit an event.
-			Self::deposit_event(RawEvent::SomethingStored(something, who));
-			// Return a successful DispatchResult
+			Self::deposit_event(RawEvent::LineIndexSet(line_index, None));
 			Ok(())
 		}
+	}
+}
 
-		/// An example dispatchable that may throw a custom error.
-		#[weight = 10_000 + T::DbWeight::get().reads_writes(1,1)]
-		pub fn cause_error(origin) -> dispatch::DispatchResult {
-			let _who = ensure_signed(origin)?;
+impl<T: Config> ProvideInherent for Module<T> {
+	type Call = Call<T>;
+	type Error = Error<T>;
+	const INHERENT_IDENTIFIER: InherentIdentifier = *b"karaoke0";
 
-			// Read a value from storage.
-			match Something::get() {
-				// Return an error if the value has not been set.
-				None => Err(Error::<T>::NoneValue)?,
-				Some(old) => {
-					// Increment the value read from storage; will error in the event of overflow.
-					let new = old.checked_add(1).ok_or(Error::<T>::StorageOverflow)?;
-					// Update the value in storage with the incremented result.
-					Something::put(new);
-					Ok(())
-				},
-			}
-		}
+	fn create_inherent(data: &InherentData) -> Option<Self::Call> {
+		let line_index =
+			data.get_data::<InherentType>(&Self::INHERENT_IDENTIFIER).ok()??;
+		Some(Call::set_line_index(line_index))
 	}
 }
